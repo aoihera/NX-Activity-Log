@@ -66,6 +66,8 @@ namespace Screen {
     void UserSelect::onUnload() {
         // Remove + delete elements within list
         this->removeElement(this->updateElm);
+        this->updateElm = nullptr;
         this->removeElement(this->list);
+        this->list = nullptr;
     }
 };

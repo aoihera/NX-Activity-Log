@@ -16,23 +16,25 @@ namespace CustomElm {
     }
 
     void SortedList::removeAllElements() {
-        // Remove everything but heading + separator
+        this->setFocused(nullptr);
         while (this->children.size() > 2) {
             delete this->children[2];
             this->children.erase(this->children.begin() + 2);
         }
-        while (this->sortinfo.size() > 0) {
+        while (!this->sortinfo.empty()) {
             delete this->sortinfo[0];
             this->sortinfo.erase(this->sortinfo.begin());
         }
+        this->updateMaxScrollPos();
     }
 
     void SortedList::returnAllElements() {
-        // Return everything but heading + separator
+        this->setFocused(nullptr);
         for (size_t i = 2; i < this->children.size(); i++) {
             this->children[i]->setParent(nullptr);
         }
         this->children.erase(this->children.begin() + 2, this->children.end());
+        this->updateMaxScrollPos();
         this->sortinfo.clear();
     }
 
@@ -85,7 +87,7 @@ namespace CustomElm {
                     return lhs.second->firstPlayed < rhs.second->firstPlayed;
                 });
                 // Push never played to bottom
-                while (merged[0].second->firstPlayed == 0) {
+                while (!merged.empty() && merged[0].second->firstPlayed == 0) {
                     std::rotate(merged.begin(), merged.begin()+1, merged.end());
                 }
                 break;

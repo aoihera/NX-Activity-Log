@@ -23,10 +23,13 @@ namespace CustomElm {
     }
 
     void ListSession::processText(Aether::Text * & text, std::function<Aether::Text * ()> getNew) {
-        // Remove original
+        // Cancel any in-flight render job before freeing the old text.
+        text->destroy();
         this->removeTexture(text);
-        this->removeElement(text);
-
+        if (!this->removeElement(text)) {
+            delete text;
+        }
+        
         // Get (and assign) new text object
         text = getNew();
 

@@ -6,6 +6,13 @@
 namespace Screen {
     CustomTheme::CustomTheme(Main::Application * a) {
         this->app = a;
+        // Null-initialize onLoad() pointers for safety on rapid screen switches.
+        this->list       = nullptr;
+        this->updateElm  = nullptr;
+        this->msgbox     = nullptr;
+        this->picker     = nullptr;
+        this->presetList = nullptr;
+
 
         // Create "static" elements
         this->topR = new Aether::Rectangle(30, 87, 1220, 1);
@@ -348,9 +355,14 @@ namespace Screen {
 
     void CustomTheme::onUnload() {
         this->removeElement(this->list);
+        this->list = nullptr;
         this->removeElement(this->updateElm);
+        this->updateElm = nullptr;
         delete this->msgbox;
+        this->msgbox = nullptr;
         delete this->picker;
+        this->picker = nullptr;
         delete this->presetList;
+        this->presetList = nullptr;
     }
 };

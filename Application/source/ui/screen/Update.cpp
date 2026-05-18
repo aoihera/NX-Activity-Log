@@ -7,6 +7,10 @@
 namespace Screen {
     Update::Update(Main::Application * a) {
         this->app = a;
+        // Null-initialize onLoad() pointers for safety on rapid screen switches.
+        this->el     = nullptr;
+        this->msgbox = nullptr;
+
 
         // Create elements
         Aether::Rectangle * r;
@@ -272,6 +276,8 @@ namespace Screen {
 
     void Update::onUnload() {
         this->removeElement(this->el);
+        this->el = nullptr;
         delete this->msgbox;
+        this->msgbox = nullptr;
     }
 };

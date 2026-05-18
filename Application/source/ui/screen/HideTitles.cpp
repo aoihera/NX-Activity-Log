@@ -8,6 +8,7 @@
 namespace Screen {
     HideTitles::HideTitles(Main::Application * a) : Aether::Screen() {
         this->app = a;
+        this->list = nullptr;  // Null-init; created in onLoad()
 
         // Create "static" elements
         Aether::Rectangle * r = new Aether::Rectangle(30, 87, 1220, 1);
@@ -86,12 +87,24 @@ namespace Screen {
         this->hiddenIDs = this->app->config()->hiddenTitles();
         std::vector<NX::Title *> titles = this->app->titleVector();
         std::sort(titles.begin(), titles.end(), [](NX::Title * lhs, NX::Title * rhs) {
-            return (lhs->name() < rhs->name());
+            // name() returns by value (mutex-protected). Store copies — taking
+            // const& to a temporary is UB.
+            const std::string ln = lhs->name();
+            const std::string rn = rhs->name();
+            if (ln.empty() && rn.empty()) return lhs->titleID() < rhs->titleID();
+            if (ln.empty()) return false; // unnamed sorts after named
+            if (rn.empty()) return true;
+            return ln < rn;
         });
 
         for (NX::Title * title : titles) {
             CustomElm::ListHide * l = new CustomElm::ListHide(title->name(), Utils::formatHexString(title->titleID()));
-            l->setImage(title->imgPtr(), title->imgSize());
+            auto status = title->iconStatus();
+            if (status == NX::IconLoadStatus::Loaded) {
+                l->setImage(title->imgPtr(), title->imgSize());
+            } else if (status != NX::IconLoadStatus::Error) {
+                iconPairs_.push_back({ l, title });
+            }
             l->setIDColour(this->app->theme()->mutedText());
             l->setLineColour(this->app->theme()->mutedLine());
             l->setTitleColour(this->app->theme()->text());
@@ -119,7 +132,28 @@ namespace Screen {
         this->updateHiddenCounter();
     }
 
+    void HideTitles::update(uint32_t dt) {
+        Screen::update(dt);
+
+        int uploaded = 0;
+        auto it = iconPairs_.begin();
+        while (it != iconPairs_.end() && uploaded < 2) {
+            auto status = it->title->iconStatus();
+            if (status == NX::IconLoadStatus::Loaded) {
+                it->element->setImage(it->title->imgPtr(), it->title->imgSize());
+                it = iconPairs_.erase(it);
+                uploaded++;
+            } else if (status == NX::IconLoadStatus::Error) {
+                it = iconPairs_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     void HideTitles::onUnload() {
+        this->iconPairs_.clear();
         this->removeElement(this->list);
+        this->list = nullptr;
     }
 };

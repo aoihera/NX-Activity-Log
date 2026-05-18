@@ -10,6 +10,16 @@ namespace Screen {
         this->app = a;
         this->createReason = sc;
 
+        // Null-initialize onLoad() pointers for safety on rapid screen switches.
+        this->heading     = nullptr;
+        this->image       = nullptr;
+        this->list        = nullptr;
+        this->menu        = nullptr;
+        this->updateElm   = nullptr;
+        this->msgbox      = nullptr;
+        this->popuplist   = nullptr;
+        this->progressbox = nullptr;
+
         // Create "static" elements
         Aether::Rectangle * r;
         if (!this->app->config()->tImage() || this->app->config()->gTheme() != ThemeType::Custom) {
@@ -95,7 +105,11 @@ namespace Screen {
     }
 
     void Settings::prepareMessageBox() {
-        //delete this->msgbox;
+        // Delete the old msgbox before allocating a new one. The original delete
+        // was commented out, causing a memory leak on every overlay invocation.
+        // On a memory-constrained platform like the Switch this eventually leads
+        // to allocation failures and crashes.
+        delete this->msgbox;
         this->msgbox = new Aether::MessageBox();
         this->msgbox->setLineColour(this->app->theme()->mutedLine());
         this->msgbox->setRectangleColour(this->app->theme()->altBG());
@@ -631,12 +645,20 @@ namespace Screen {
 
     void Settings::onUnload() {
         this->removeElement(this->heading);
+        this->heading = nullptr;
         this->removeElement(this->image);
+        this->image = nullptr;
         this->removeElement(this->list);
+        this->list = nullptr;
         this->removeElement(this->menu);
+        this->menu = nullptr;
         this->removeElement(this->updateElm);
+        this->updateElm = nullptr;
         delete this->msgbox;
+        this->msgbox = nullptr;
         delete this->popuplist;
+        this->popuplist = nullptr;
         delete this->progressbox;
+        this->progressbox = nullptr;
     }
 };

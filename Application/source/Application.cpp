@@ -49,6 +49,7 @@ namespace Main {
         // Start update thread
         this->hasUpdate_ = false;
         this->updateThread = std::async(std::launch::async, &Application::checkForUpdate, this);
+        this->initDone_ = false;
 
         // Check if launched via user page and if so only use the chosen user
         NX::User * u = Utils::NX::getUserPageUser();
@@ -138,19 +139,10 @@ namespace Main {
         app->playdata_->setCurrentProgress(app->playdata_->getCurrentProgress() + 1);
         progress = (float)app->playdata_->getCurrentProgress() / max;
         app->scloadingScreen->setProgress(progress);
-        // Loading complete, switch to main screen
-        if (progress >= 1.0f) {
-            app->scloadingScreen->removeAllElements();
-            if (app->isUserPage_) {
-                // Skip UserSelect screen if launched via user page
-                app->setScreen(app->config_->lScreen());
-            } else {
-                // Start with UserSelect screen
-                app->window->setFadeIn(true);
-                app->window->setFadeOut(true);
-                app->setScreen(ScreenID::UserSelect);
-            }
-        }
+        // Signal the main (UI) thread that loading is complete.
+        // All Aether element-tree mutations (removeAllElements, setScreen, setFadeIn/Out)
+        // MUST happen on the UI thread; doing them here caused a data race / crash.
+        app->initDone_.store(true, std::memory_order_release);
     }
 
     void Application::checkForUpdate() {
@@ -500,13 +492,32 @@ namespace Main {
     void Application::run() {
         // Do main loop
         while (this->window->loop()) {
-            // Check if screens should be recreated
+            // Loading finished: perform UI transition on the main thread.
+            // initThreadFunc only sets initDone_; all Aether mutations happen here.
+            if (this->initDone_.load(std::memory_order_acquire)) {
+                this->initDone_.store(false, std::memory_order_relaxed); // consume once
+                this->scloadingScreen->removeAllElements();
+                if (this->isUserPage_) {
+                    this->setScreen(this->config_->lScreen());
+                } else {
+                    this->window->setFadeIn(true);
+                    this->window->setFadeOut(true);
+                    this->setScreen(ScreenID::UserSelect);
+                }
+            }
             if (this->reinitScreens_ == ReinitState::Wait) {
                 this->reinitScreens_ = ReinitState::True;
             } else if (this->reinitScreens_ == ReinitState::True) {
                 this->reinitScreens_ = ReinitState::False;
                 this->window->removeScreen();
                 this->deleteScreens();
+                // Clear BOTH the app-level and Aether-internal screen stacks.
+                // Both hold pointers to the now-deleted screen objects; stale
+                // pointers here cause a crash if a pop fires after reinit.
+                while (!this->screenStack.empty()) {
+                    this->screenStack.pop();
+                }
+                this->window->clearScreenStack();
                 this->setDisplayTheme();
                 this->createScreens();
                 this->setScreen(this->screen);

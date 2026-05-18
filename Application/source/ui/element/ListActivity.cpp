@@ -32,10 +32,19 @@ namespace CustomElm {
     }
 
     void ListActivity::processText(Aether::Text * & text, std::function<Aether::Text * ()> getNew) {
-        // Remove original
+        // Cancel / wait for any in-flight async render job before we free the object.
+        // Without this, a ThreadPool worker executing renderDrawable() on this texture
+        // races against the delete below and causes a use-after-free crash when
+        // switching screens quickly while icons/text are still rendering.
+        text->destroy();
+        // Remove original from the texture list (always safe – returns false if absent).
         this->removeTexture(text);
-        this->removeElement(text);
-
+        // removeElement deletes the object and returns true if it was in children.
+        // On the very first call the blank placeholder was never added to children,
+        // so removeElement returns false and we must free it manually to avoid a leak.
+        if (!this->removeElement(text)) {
+            delete text;
+        }
         // Get (and assign) new text object
         text = getNew();
 
@@ -62,9 +71,15 @@ namespace CustomElm {
     }
 
     void ListActivity::setImage(uint8_t * ptr, uint32_t size) {
-        // Remove original
+        // Cancel any in-flight render job before freeing the old icon (same race as
+        // processText: worker thread may be inside renderDrawable() when we delete).
+        this->icon->destroy();
         this->removeTexture(this->icon);
-        this->removeElement(this->icon);
+        // removeElement deletes the object if it is in children (it always is for icon).
+        // Don't call delete again afterwards – that would be a double-free.
+        if (!this->removeElement(this->icon)) {
+            delete this->icon;
+        }
 
         // Add new icon and render it asynchronously
         this->icon = new Aether::Image(0, 0, ptr, size, Aether::Render::Wait);

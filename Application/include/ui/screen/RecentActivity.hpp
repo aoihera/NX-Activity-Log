@@ -2,7 +2,10 @@
 #define SCREEN_RECENTACTIVITY_HPP
 
 #include "ui/element/Graph.hpp"
+#include "ui/element/ListActivity.hpp"
 #include "ui/element/SortedList.hpp"
+#include "nx/Title.hpp"
+#include <vector>
 
 // Forward declaration due to circular dependency
 namespace Main {
@@ -36,6 +39,14 @@ namespace Screen {
             Aether::Menu * menu;
             Aether::Text * noStats;
             Aether::Image * updateElm;
+
+            // Pending icon uploads: list-item element <-> title whose icon is
+            // being fetched by TitleIconLoader.  Drained lazily in update().
+            struct PendingTitle {
+                CustomElm::ListActivity * element;
+                NX::Title               * title;
+            };
+            std::vector<PendingTitle> pendingTitles_;
 
             // Copy of tm on push
             struct tm tmCopy;

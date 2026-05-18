@@ -1,4 +1,13 @@
+// utils/NX.cpp
+// Changes vs. original:
+//   - getTitleObjects() no longer passes NsApplicationControlData through
+//     each Title constructor.  Title objects are created lightweight; the
+//     TitleIconLoader background thread populates icons asynchronously.
+//   - startServices() / stopServices() call TitleIconLoader::init() /
+//     TitleIconLoader::exit() so callers don't need to know about it.
+
 #include "utils/NX.hpp"
+#include "nx/TitleIconLoader.hpp"
 #include <algorithm>
 #include <iterator>
 
@@ -29,7 +38,6 @@ namespace Utils::NX {
             }
         }
 
-        // If it fails return dark
         return ThemeType::Dark;
     }
 
@@ -98,17 +106,12 @@ namespace Utils::NX {
 
         AppletType t = appletGetAppletType();
         if (t == AppletType_LibraryApplet) {
-            // Attempt to get user id from IStorage
             AppletStorage * s = (AppletStorage *)malloc(sizeof(AppletStorage));
-            // Pop common args IStorage
             if (R_SUCCEEDED(appletPopInData(s))) {
-                // Pop MyPage-specific args IStorage
                 if (R_SUCCEEDED(appletPopInData(s))) {
-                    // Get user id
                     AccountUid uid;
                     appletStorageRead(s, 0x8, &uid, 0x10);
 
-                    // Check if valid
                     AccountUid userIDs[ACC_USER_LIST_SIZE];
                     s32 num = 0;
                     accountListAllUsers(userIDs, ACC_USER_LIST_SIZE, &num);
@@ -127,51 +130,44 @@ namespace Utils::NX {
     }
 
     std::vector<::NX::User *> getUserObjects() {
-        // Get IDs
         std::vector<::NX::User *> users;
         AccountUid userIDs[ACC_USER_LIST_SIZE];
         s32 num = 0;
         Result rc = accountListAllUsers(userIDs, ACC_USER_LIST_SIZE, &num);
 
         if (R_SUCCEEDED(rc)) {
-            // Create objects and insert into vector
             for (s32 i = 0; i < num; i++) {
                 users.emplace_back(new ::NX::User(userIDs[i]));
             }
         }
 
-        // Returns an empty vector if an error occurred
         return users;
     }
 
     std::vector<::NX::Title *> getTitleObjects(std::vector<::NX::User *> u) {
         Result rc = 0;
-        // Get ALL played titles for ALL users
-        // (this doesn't include installed games that haven't been played)
+
+        // ----------------------------------------------------------------
+        // 1. Collect all played titleIDs across all users (unchanged logic).
+        // ----------------------------------------------------------------
         std::vector<TitleID> playedIDs;
         for (auto user : u) {
-            // Position of first event to read
             s32 offset = 0;
-            // Total events read in iteration
             s32 playedTotal = 1;
-
-            // Array to store read events
-            PdmAccountPlayEvent *userPlayEvents  = new PdmAccountPlayEvent[MAX_TITLES];
-
+            PdmAccountPlayEvent *userPlayEvents = new PdmAccountPlayEvent[MAX_TITLES];
             TitleID tmpID = 0;
-            // Read all events
-            while (playedTotal > 0) {
-                memset(userPlayEvents , 0, MAX_TITLES * sizeof(PdmAccountPlayEvent));
-                rc = pdmqryQueryAccountPlayEvent(offset, user->ID(), userPlayEvents , MAX_TITLES, &playedTotal);
-                if (R_SUCCEEDED(rc)) {
-                    // Set next read position to next event
-                    offset += playedTotal;
 
-                    // Push back ID if not already in the vector
+            while (playedTotal > 0) {
+                memset(userPlayEvents, 0, MAX_TITLES * sizeof(PdmAccountPlayEvent));
+                rc = pdmqryQueryAccountPlayEvent(offset, user->ID(), userPlayEvents, MAX_TITLES, &playedTotal);
+                if (R_SUCCEEDED(rc)) {
+                    offset += playedTotal;
                     for (s32 i = 0; i < playedTotal; i++) {
-                        tmpID = (static_cast<TitleID>(userPlayEvents[i].application_id[0]) << 32) | userPlayEvents[i].application_id[1];
-                        if (std::find_if(playedIDs.begin(), playedIDs.end(), [tmpID](auto id){ return (id == tmpID); }) == playedIDs.end()) {
-                            if (tmpID != 0) {
+                        tmpID = (static_cast<TitleID>(userPlayEvents[i].application_id[0]) << 32)
+                              | userPlayEvents[i].application_id[1];
+                        if (tmpID != 0) {
+                            if (std::find_if(playedIDs.begin(), playedIDs.end(),
+                                    [tmpID](auto id){ return id == tmpID; }) == playedIDs.end()) {
                                 playedIDs.emplace_back(tmpID);
                             }
                         }
@@ -179,11 +175,12 @@ namespace Utils::NX {
                 }
             }
 
-            // Free memory allocated to array
-            delete[] userPlayEvents ;
+            delete[] userPlayEvents;
         }
 
-        // Get IDs of all installed titles
+        // ----------------------------------------------------------------
+        // 2. Collect installed titleIDs (unchanged logic).
+        // ----------------------------------------------------------------
         std::vector<TitleID> installedIDs;
         NsApplicationRecord *records = new NsApplicationRecord[MAX_TITLES];
         s32 count = 0;
@@ -191,10 +188,7 @@ namespace Utils::NX {
         while (true) {
             memset(records, 0, MAX_TITLES * sizeof(NsApplicationRecord));
             rc = nsListApplicationRecord(records, MAX_TITLES, count, &out);
-            // Break if at the end or no titles
-            if (R_FAILED(rc) || out == 0){
-                break;
-            }
+            if (R_FAILED(rc) || out == 0) break;
             for (s32 i = 0; i < out; i++) {
                 if ((records + i)->application_id != 0) {
                     installedIDs.emplace_back((records + i)->application_id);
@@ -204,13 +198,24 @@ namespace Utils::NX {
         }
         delete[] records;
 
-        // Create Title objects from IDs
+        // ----------------------------------------------------------------
+        // 3. Create lightweight Title objects (no icon load here).
+        //    Icons are fetched asynchronously by TitleIconLoader.
+        // ----------------------------------------------------------------
         std::vector<::NX::Title *> titles;
+        titles.reserve(playedIDs.size());
         for (auto playedID : playedIDs) {
-            // Loop over installed titles to determine if installed or not
-            bool installed = std::find_if(installedIDs.begin(), installedIDs.end(), [playedID](auto id) { return id == playedID; }) != installedIDs.end();
+            bool installed = std::find_if(installedIDs.begin(), installedIDs.end(),
+                [playedID](auto id){ return id == playedID; }) != installedIDs.end();
             titles.emplace_back(new ::NX::Title(playedID, installed));
         }
+
+        // ----------------------------------------------------------------
+        // 4. Kick off background icon loading for all titles at once.
+        //    Installed titles have higher priority; uninstalled ones will
+        //    likely fail (and show the fallback) anyway.
+        // ----------------------------------------------------------------
+        TitleIconLoader::pushBatch(titles);
 
         return titles;
     }
@@ -223,12 +228,18 @@ namespace Utils::NX {
         setsysInitialize();
         socketInitializeDefault();
 
+        // Start the async icon loader now that NS is initialised.
+        TitleIconLoader::init();
+
         #if _NXLINK_
             nxlinkStdio();
         #endif
     }
 
     void stopServices() {
+        // Stop loader before NS exits.
+        TitleIconLoader::exit();
+
         accountExit();
         nsExit();
         pdmqryExit();
@@ -236,4 +247,4 @@ namespace Utils::NX {
         setsysExit();
         socketExit();
     }
-};
+}

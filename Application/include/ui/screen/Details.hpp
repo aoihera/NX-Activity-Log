@@ -3,6 +3,7 @@
 
 #include "ui/element/Graph.hpp"
 #include "ui/overlay/PlaySession.hpp"
+#include "nx/Title.hpp"
 
 // Forward declaration due to circular dependency
 namespace Main {
@@ -17,6 +18,9 @@ namespace Screen {
             Main::Application * app;
             // Used to udpate prev. screen
             bool popped;
+            // True once the title icon has been uploaded (async lazy-load).
+            bool iconLoaded_;
+            bool titleLoaded_;
 
             // Element which marks top of sessions
             Aether::Element * topElm;

@@ -79,9 +79,12 @@ namespace CustomElm {
     }
 
     void ListHide::setImage(uint8_t * ptr, uint32_t size) {
-        // Remove original
+        // Cancel any in-flight render job before freeing the old icon.
+        this->icon->destroy();
         this->removeTexture(this->icon);
-        this->removeElement(this->icon);
+        if (!this->removeElement(this->icon)) {
+            delete this->icon;
+        }
 
         // Add new icon and render it asynchronously
         this->icon = new Aether::Image(0, 0, ptr, size, Aether::Render::Wait);

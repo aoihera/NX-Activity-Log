@@ -108,13 +108,12 @@ namespace Utils::Time {
     int tmGetDaysInMonth(struct tm t) {
         switch (t.tm_mon) {
             // Except February alone...
-            case 1:
-                if (t.tm_year % 4 == 0) {
-                    return 29;
-                } else {
-                    return 28;
-                }
-                break;
+            // tm_year is years since 1900; add 1900 to get the Gregorian year.
+            case 1: {
+                int year = t.tm_year + 1900;
+                bool leap = ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
+                return leap ? 29 : 28;
+            }
 
             // 30 days has September, April, June + November...
             case 3:

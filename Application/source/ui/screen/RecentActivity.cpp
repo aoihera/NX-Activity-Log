@@ -7,6 +7,24 @@ namespace Screen {
     RecentActivity::RecentActivity(Main::Application * a) {
         this->app = a;
 
+        // Null-initialize all onLoad() pointers. onPop()/update() may be called
+        // in edge-case orderings before onLoad() completes or after onUnload()
+        // runs (rapid screen switching, reinitScreens mid-push, etc.) — a null
+        // check is much cheaper than a crash.
+        this->list        = nullptr;
+        this->header      = nullptr;
+        this->topElm      = nullptr;
+        this->graph       = nullptr;
+        this->gameHeading = nullptr;
+        this->graphHeading    = nullptr;
+        this->graphSubheading = nullptr;
+        this->heading     = nullptr;
+        this->hours       = nullptr;
+        this->image       = nullptr;
+        this->menu        = nullptr;
+        this->noStats     = nullptr;
+        this->updateElm   = nullptr;
+
         // Create "static" elements
         Aether::Rectangle * r;
         if (!this->app->config()->tImage() || this->app->config()->gTheme() != ThemeType::Custom) {
@@ -67,6 +85,13 @@ namespace Screen {
     }
 
     void RecentActivity::updateActivity() {
+        // Guard: list may be null if called before onLoad() or after onUnload()
+        // (e.g. from onPop() when a rapid screen switch fired before the push
+        // completed, or during a reinitScreens() cycle).
+        if (!this->list) {
+            return;
+        }
+
         // Check if there is any activity + update heading
         struct tm begin = this->app->time();
         struct tm t = begin;
@@ -100,6 +125,7 @@ namespace Screen {
         NX::RecentPlayStatistics *ps = this->app->playdata()->getRecentStatisticsForUser(Utils::Time::getTimeT(tm), Utils::Time::getTimeT(em), this->app->activeUser()->ID());
 
         // Remove current sessions regardless
+        this->pendingTitles_.clear();
         this->list->removeElementsAfter(this->topElm);
         if (this->focussed() == this->list) {
             this->list->setFocussed(this->header);
@@ -261,39 +287,69 @@ namespace Screen {
                     break;
             }
 
-            // Get stats
-            std::vector<std::pair<NX::RecentPlayStatistics *, unsigned int> > stats;
-            for (size_t i = 0; i < this->app->titleVector().size(); i++) {
-                std::pair<NX::RecentPlayStatistics *, unsigned int> stat;
-                stat.first = this->app->playdata()->getRecentStatisticsForTitleAndUser(this->app->titleVector()[i]->titleID(), Utils::Time::getTimeT(begin), end_time, this->app->activeUser()->ID());
-                stat.second = i;
-                stats.push_back(stat);
+            // Get stats — pair is (stats, titleID) so we don't rely on index after sort
+            std::vector<std::pair<NX::RecentPlayStatistics *, TitleID>> stats;
+            const std::vector<NX::Title *> & tv = this->app->titleVector();
+            for (size_t i = 0; i < tv.size(); i++) {
+                NX::RecentPlayStatistics * s = this->app->playdata()->getRecentStatisticsForTitleAndUser(
+                    tv[i]->titleID(),
+                    Utils::Time::getTimeT(begin),
+                    end_time,
+                    this->app->activeUser()->ID());
+                stats.push_back({ s, tv[i]->titleID() });
             }
 
             // Sort to have most played first
-            std::sort(stats.begin(), stats.end(), [](const std::pair<NX::RecentPlayStatistics *, unsigned int> lhs, const std::pair<NX::RecentPlayStatistics *, unsigned int> rhs) {
+            std::sort(stats.begin(), stats.end(), [](const auto & lhs, const auto & rhs) {
                 return lhs.first->playtime > rhs.first->playtime;
             });
 
             // Add to list
-            bool isHidden = false;
             std::vector<uint64_t> hidden = this->app->config()->hiddenTitles();
-            for (auto stat : stats) {
-                isHidden = std::find(hidden.begin(), hidden.end(), this->app->titleVector()[stat.second]->titleID()) != hidden.end();
-                // Only show games that have actually been played and skip over hidden games
+            for (auto & stat : stats) {
+                TitleID tid = stat.second;
+                bool isHidden = std::find(hidden.begin(), hidden.end(), tid) != hidden.end();
+                // Only show games that have actually been played and skip hidden games
                 if (stat.first->launches == 0 || isHidden) {
                     delete stat.first;
                     continue;
                 }
 
+                // Find the Title* by ID so the lambda captures the stable ID, not an index
+                NX::Title * titlePtr = nullptr;
+                size_t titleIdx = 0;
+                for (size_t i = 0; i < tv.size(); i++) {
+                    if (tv[i]->titleID() == tid) {
+                        titlePtr = tv[i];
+                        titleIdx = i;
+                        break;
+                    }
+                }
+                if (!titlePtr) {
+                    delete stat.first;
+                    continue;
+                }
+
                 CustomElm::ListActivity * la = new CustomElm::ListActivity();
-                la->setImage(this->app->titleVector()[stat.second]->imgPtr(), this->app->titleVector()[stat.second]->imgSize());
-                la->setTitle(this->app->titleVector()[stat.second]->name());
+                auto status = titlePtr->iconStatus();
+                if (status == NX::IconLoadStatus::Loaded) {
+                    la->setImage(titlePtr->imgPtr(), titlePtr->imgSize());
+                }
+                la->setTitle(titlePtr->name());
+                if (status != NX::IconLoadStatus::Loaded) {
+                    pendingTitles_.push_back({ la, titlePtr });
+                }
                 la->setPlaytime(Utils::playtimeToPlayedForString(stat.first->playtime));
                 la->setLeftMuted(Utils::launchesToPlayedString(stat.first->launches));
-                unsigned int j = stat.second;
-                la->onPress([this, j](){
-                    this->app->setActiveTitle(j);
+                // Capture titleID (stable) rather than the list index (which changes after sort)
+                la->onPress([this, tid](){
+                    const auto & tv2 = this->app->titleVector();
+                    for (size_t j = 0; j < tv2.size(); j++) {
+                        if (tv2[j]->titleID() == tid) {
+                            this->app->setActiveTitle(j);
+                            break;
+                        }
+                    }
                     this->app->pushScreen();
                     this->app->setScreen(ScreenID::Details);
                 });
@@ -329,6 +385,24 @@ namespace Screen {
             this->updateActivity();
         }
         Screen::update(dt);
+
+        // Lazy-load icons: poll pending pairs, splice out completed ones.
+        int uploaded = 0;
+        auto it = pendingTitles_.begin();
+        while (it != pendingTitles_.end() && uploaded < 2) {
+            auto status = it->title->iconStatus();
+            if (status == NX::IconLoadStatus::Loaded) {
+                it->element->setImage(it->title->imgPtr(), it->title->imgSize());
+                it->element->setTitle(it->title->name());
+                it = pendingTitles_.erase(it);
+                uploaded++;
+            } else if (status == NX::IconLoadStatus::Error) {
+                it->element->setTitle(it->title->name());
+                it = pendingTitles_.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
     void RecentActivity::onLoad() {
@@ -446,19 +520,34 @@ namespace Screen {
     }
 
     void RecentActivity::onUnload() {
+        this->pendingTitles_.clear();
         this->removeElement(this->heading);
+        this->heading = nullptr;
         this->removeElement(this->hours);
+        this->hours = nullptr;
         this->removeElement(this->image);
+        this->image = nullptr;
         this->removeElement(this->list);
+        this->list = nullptr;
         this->removeElement(this->menu);
+        this->menu = nullptr;
         this->removeElement(this->updateElm);
+        this->updateElm = nullptr;
     }
 
     void RecentActivity::onPush() {
         this->tmCopy = this->app->time();
+        // Also save the current view period so onPop() can correctly detect
+        // whether it changed while the Details screen was shown.
+        this->viewCopy = this->app->viewPeriod();
     }
 
     void RecentActivity::onPop() {
+        // Guard: if somehow called after onUnload() (shouldn't happen normally,
+        // but rapid screen switching can create unusual orderings).
+        if (!this->list) {
+            return;
+        }
         // If time was changed in details update this screen too!
         if (Utils::Time::areDifferentDates(this->tmCopy, this->app->time()) || this->viewCopy != this->app->viewPeriod()) {
             this->updateActivity();

@@ -1,77 +1,66 @@
-#include <cstring>
-#include <fstream>
 #include "nx/Title.hpp"
+#include <mutex>
 
 namespace NX {
-    Title::Title(TitleID titleID, bool installed) {
-        this->titleID_ = titleID;
-        this->is_installed = installed;
-        this->name_ = "";
-        this->ptr = nullptr;
 
-        // Get name and icon
-        NsApplicationControlData data;
-        NacpLanguageEntry * lang = nullptr;
-        size_t nacp_size;
-        Result rc = nsGetApplicationControlData(NsApplicationControlSource_Storage, this->titleID_, &data, sizeof(NsApplicationControlData), &nacp_size);
-        if (R_SUCCEEDED(rc)){
-            // Get name
-            rc = nacpGetLanguageEntry(&data.nacp, &lang);
-            if (R_SUCCEEDED(rc)){
-                this->name_ = std::string(lang->name);
-            }
-
-            // Get icon
-            this->size = nacp_size - sizeof(data.nacp);
-            this->ptr = (u8 *) malloc(this->size);
-            memcpy(this->ptr, data.icon, this->size);
-        }
+    // ------------------------------------------------------------------
+    // Installed title – name + icon come from the async loader later.
+    // ------------------------------------------------------------------
+    Title::Title(TitleID titleID, bool installed)
+        : titleID_(titleID)
+        , is_installed(installed)
+        , name_("")
+        , iconStatus_(IconLoadStatus::None)
+    {
     }
 
-    Title::Title(const TitleID titleID, const std::string & name) {
-        this->titleID_ = titleID;
-        this->is_installed = false;
-        this->name_ = name;
-
-        // Load in image
-        std::ifstream file("romfs:/icon/no_icon.jpg", std::ios::binary);
-        file.unsetf(std::ios::skipws);
-        file.seekg(0, std::ios::end);
-        this->size = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        this->ptr = static_cast<u8 *>(malloc(this->size));
-        u8 byte;
-        size_t pos = 0;
-        while (file >> byte && pos < this->size) {
-            this->ptr[pos] = byte;
-            pos++;
-        }
+    // ------------------------------------------------------------------
+    // Missing / uninstalled title – name is known, icon will stay empty
+    // and the UI should fall back to the no_icon asset.
+    // ------------------------------------------------------------------
+    Title::Title(const TitleID titleID, const std::string & name)
+        : titleID_(titleID)
+        , is_installed(false)
+        , name_(name)
+        , iconStatus_(IconLoadStatus::Error)  // don't bother queuing
+    {
     }
 
-    TitleID Title::titleID() {
-        return this->titleID_;
+    TitleID Title::titleID() const { return titleID_; }
+    bool    Title::isInstalled() const { return is_installed; }
+
+    std::string Title::name() const {
+        std::lock_guard<std::mutex> lk(nameMutex_);
+        return name_;
     }
 
-    bool Title::isInstalled() {
-        return this->is_installed;
+    const std::vector<u8>& Title::iconData() const { return iconData_; }
+
+    // Legacy accessors used by existing Aether::Image(ptr, size, ...) call-sites.
+    u8*  Title::imgPtr()  { return iconData_.empty() ? nullptr : iconData_.data(); }
+    u32  Title::imgSize() { return static_cast<u32>(iconData_.size()); }
+
+    NX::IconLoadStatus Title::iconStatus() const {
+        return iconStatus_.load(std::memory_order_acquire);
     }
 
-    std::string Title::name() {
-        return this->name_;
+    // Called by TitleIconLoader from the background thread.
+    void Title::setIconData(std::vector<u8>&& data) {
+        iconData_ = std::move(data);
     }
 
-    u8 * Title::imgPtr() {
-        return this->ptr;
+    void Title::setName(const std::string& n) {
+        std::lock_guard<std::mutex> lk(nameMutex_);
+        name_ = n;
     }
 
-    u32 Title::imgSize() {
-        return this->size;
+    void Title::setIconStatus(IconLoadStatus s) {
+        iconStatus_.store(s, std::memory_order_release);
     }
+
 
     Title::~Title() {
-        if (this->ptr != nullptr) {
-            free(this->ptr);
-        }
+        // iconData_ is a std::vector, cleaned up automatically.
     }
-};
+
+} // namespace NX

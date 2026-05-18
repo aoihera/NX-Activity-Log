@@ -83,6 +83,10 @@ namespace Main {
 
             Thread initThreadHandle;
             static void initThreadFunc(void* arg);
+            // Set to true by initThreadFunc when loading is complete.
+            // The main thread checks this in run() to perform the UI transition
+            // safely (Aether element tree must only be touched from the UI thread).
+            std::atomic<bool> initDone_;
 
             // Time to view recent activity, etc...
             struct tm tm;

@@ -21,7 +21,17 @@ namespace Main {
             return;
         }
         std::ifstream importFile("/switch/NX-Activity-Log/import.json");
-        nlohmann::json importJson = nlohmann::json::parse(importFile);
+        // Validate before parsing (devkitPro builds with -fno-exceptions).
+        if (!nlohmann::json::accept(importFile)) {
+            this->percent = 100;
+            return;
+        }
+        importFile.seekg(0);
+        nlohmann::json importJson = nlohmann::json::parse(importFile, nullptr, /*allow_exceptions=*/false);
+        if (importJson.is_discarded()) {
+            this->percent = 100;
+            return;
+        }
 
         // Create imported JSON
         nlohmann::json json;

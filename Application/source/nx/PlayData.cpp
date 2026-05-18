@@ -103,7 +103,13 @@ namespace NX {
             u64 last_clock = 0;
             bool in_before = false;
             bool done = false;
+            bool has_infocus = false;  // guard: only count OutFocus if we saw InFocus first
             for (size_t j = sessions[i].index; j < sessions[i].index + sessions[i].num; j++) {
+                // Bounds check: guard against corrupt session data
+                if (j >= this->events.size()) {
+                    break;
+                }
+
                 if (done) {
                     break;
                 }
@@ -111,13 +117,16 @@ namespace NX {
                 switch (this->events[j]->eventType) {
                     case Applet_Launch:
                         // Skip to first in focus event
-                        while (j+1 < this->events.size()) {
+                        while (j+1 < this->events.size() && (j+1) < sessions[i].index + sessions[i].num) {
                             if (this->events[j+1]->eventType != Applet_InFocus) {
                                 j++;
                             } else {
                                 break;
                             }
                         }
+                        has_infocus = false;
+                        break;
+
                     case Applet_Exit:
                     case Account_Active:
                     case Account_Inactive:
@@ -127,6 +136,7 @@ namespace NX {
                         last_ts = this->events[j]->steadyTimestamp;
                         last_clock = this->events[j]->clockTimestamp;
                         in_before = false;
+                        has_infocus = true;
                         if (this->events[j]->clockTimestamp < start_ts) {
                             last_clock = start_ts;
                             in_before = true;
@@ -136,18 +146,31 @@ namespace NX {
                         break;
 
                     case Applet_OutFocus:
-                        if (this->events[j]->clockTimestamp >= end_ts) {
-                            stats->playtime += (end_ts - last_clock);
-                        } else if (this->events[j]->clockTimestamp >= start_ts) {
-                            if (in_before) {
-                                stats->playtime += (this->events[j]->clockTimestamp - last_clock);
-                            } else {
-                                stats->playtime += (this->events[j]->steadyTimestamp - last_ts);
+                        // Only count playtime if we actually saw an InFocus event
+                        if (has_infocus) {
+                            if (this->events[j]->clockTimestamp >= end_ts) {
+                                // Clamp to end_ts
+                                if (end_ts > last_clock) {
+                                    stats->playtime += (end_ts - last_clock);
+                                }
+                            } else if (this->events[j]->clockTimestamp >= start_ts) {
+                                if (in_before) {
+                                    // started before window: clock-based delta
+                                    if (this->events[j]->clockTimestamp > last_clock) {
+                                        stats->playtime += (this->events[j]->clockTimestamp - last_clock);
+                                    }
+                                } else {
+                                    // started inside window: steady-based delta (avoids clock jumps)
+                                    if (last_ts != 0 && this->events[j]->steadyTimestamp >= last_ts) {
+                                        stats->playtime += (this->events[j]->steadyTimestamp - last_ts);
+                                    }
+                                }
                             }
                         }
+                        has_infocus = false;
 
                         // Move to last out focus (I don't know why the log has multiple)
-                        while (j+1 < this->events.size()) {
+                        while (j+1 < this->events.size() && (j+1) < sessions[i].index + sessions[i].num) {
                             if (this->events[j+1]->eventType == Applet_OutFocus) {
                                 j++;
                             } else {
@@ -201,11 +224,15 @@ namespace NX {
                         event = new PlayEvent;
                         event->type = PlayEvent_Account;
 
-                        // UserID words are wrong way around (why Nintendo?)
-                        event->userID.uid[0] = pEvents[i].event_data.account.uid[0];
-                        event->userID.uid[0] = (event->userID.uid[0] << 32) | pEvents[i].event_data.account.uid[1];
-                        event->userID.uid[1] = (event->userID.uid[1] << 32) | pEvents[i].event_data.account.uid[2];
-                        event->userID.uid[1] = (event->userID.uid[1] << 32) | pEvents[i].event_data.account.uid[3];
+                        // Reconstruct the 128-bit AccountUid from four 32-bit words.
+                        // The PDM stores the UID as four u32 values; the Switch SDK's
+                        // AccountUid has two u64 members (uid[0] and uid[1]).
+                        // uid[0] is the high 64 bits (words 0 and 1),
+                        // uid[1] is the low  64 bits (words 2 and 3).
+                        event->userID.uid[0] = (static_cast<u64>(pEvents[i].event_data.account.uid[0]) << 32)
+                                             |  static_cast<u64>(pEvents[i].event_data.account.uid[1]);
+                        event->userID.uid[1] = (static_cast<u64>(pEvents[i].event_data.account.uid[2]) << 32)
+                                             |  static_cast<u64>(pEvents[i].event_data.account.uid[3]);
 
                         // Set account event type
                         switch (pEvents[i].event_data.account.type) {
@@ -215,8 +242,13 @@ namespace NX {
                             case 1:
                                 event->eventType = Account_Inactive;
                                 break;
+                            default:
+                                // Unexpected type — skip rather than storing garbage
+                                delete event;
+                                continue;
                         }
                         break;
+
                     case PdmPlayEventType_Applet:
                         // Ignore this event based on log policy
                         if (pEvents[i].event_data.applet.log_policy != PdmPlayLogPolicy_All) {
@@ -224,8 +256,8 @@ namespace NX {
                         }
 
                         // Ignore event with titleID 0
-                        tmpID = pEvents[i].event_data.applet.program_id[0];
-                        tmpID = (tmpID << 32) | pEvents[i].event_data.applet.program_id[1];
+                        tmpID = static_cast<TitleID>(pEvents[i].event_data.applet.program_id[0]) << 32
+                              | pEvents[i].event_data.applet.program_id[1];
                         if (tmpID == 0) {
                             continue;
                         }
@@ -235,6 +267,7 @@ namespace NX {
 
                         // Join two halves of title ID
                         event->titleID = tmpID;
+                        event->userID = {};  // applet events don't carry a userID
 
                         // Set applet event type
                         switch (pEvents[i].event_data.applet.event_type) {
@@ -253,12 +286,16 @@ namespace NX {
                             case PdmAppletEventType_OutOfFocus4:
                                 event->eventType = Applet_OutFocus;
                                 break;
+                            default:
+                                // Unknown applet event type — skip
+                                delete event;
+                                continue;
                         }
                         break;
+
                     // Do nothing for other event types
                     default:
                         continue;
-                        break;
                 }
 
                 // Set timestamps
@@ -286,7 +323,23 @@ namespace NX {
 
         // Read in file
         std::ifstream file("/switch/NX-Activity-Log/importedData.json");
-        nlohmann::json json = nlohmann::json::parse(file);
+        if (!file.is_open()) {
+            return ret;
+        }
+
+        // Parse with exceptions disabled (devkitPro uses -fno-exceptions).
+        // nlohmann::json::accept() does a dry-run validity check without throwing.
+        // We re-open because accept() consumes the stream.
+        file.seekg(0);
+        if (!nlohmann::json::accept(file)) {
+            return ret;
+        }
+        file.seekg(0);
+        nlohmann::json json = nlohmann::json::parse(file, nullptr, /*allow_exceptions=*/false);
+        if (json.is_discarded()) {
+            return ret;
+        }
+
         if (json["users"] == nullptr || json["importTimestamp"] == nullptr) {
             return ret;
         }
@@ -301,7 +354,7 @@ namespace NX {
 
             // Iterate over each title
             for (nlohmann::json title : user["titles"]) {
-                if (title["id"] == 0) {
+                if (title["id"] == nullptr || title["id"] == 0) {
                     continue;
                 }
 
@@ -311,7 +364,7 @@ namespace NX {
                 if (title["events"] != nullptr) {
                     for (nlohmann::json event : title["events"]) {
                         if (event["clockTimestamp"] != nullptr && event["steadyTimestamp"] != nullptr && event["type"] != nullptr) {
-                            EventType type = static_cast<EventType>(event["type"]);
+                            EventType type = static_cast<EventType>(event["type"].get<int>());
 
                             PlayEvent *evt = new PlayEvent;
                             evt->type = (type == Account_Active || type == Account_Inactive ? PlayEvent_Account : PlayEvent_Applet);
@@ -347,7 +400,7 @@ namespace NX {
                 if (hasEntry) {
                     if (std::find_if(this->importTitles.begin(), this->importTitles.end(), [title](std::pair<u64, std::string> entry) { return (title["id"] == entry.first); }) == this->importTitles.end()) {
                         if (title["id"] != 0) {
-                            this->importTitles.emplace_back(std::make_pair(title["id"], title["name"]));
+                            this->importTitles.emplace_back(std::make_pair(title["id"], title["name"].get<std::string>()));
                         }
                     }
                 }
@@ -356,7 +409,7 @@ namespace NX {
         return ret;
     }
 
-    PlayData::PlayData() : currentProgress(0), maxProgress(1), progressCallback(nullptr) {
+    PlayData::PlayData() : currentProgress(0), maxProgress(1), progressCallback(nullptr), importTimestamp(0) {
         // Read in all data simultaneously
         this->pdmThread = std::async(std::launch::async, [this]() -> PlayEventsAndSummaries {
             return this->readPlayDataFromPdm();
@@ -448,8 +501,9 @@ namespace NX {
         std::vector<PD_Session> sessions = this->getPDSessions(titleID, userID, start, end);
         for (size_t i = 0; i < sessions.size(); i++) {
             for (size_t j = sessions[i].index; j < sessions[i].index + sessions[i].num; j++) {
+                if (j >= this->events.size()) break;  // bounds guard
                 // Ignore repeated OutFocus events
-                if (this->events[j]->eventType == Applet_OutFocus && this->events[j-1]->eventType == Applet_OutFocus) {
+                if (j > 0 && this->events[j]->eventType == Applet_OutFocus && this->events[j-1]->eventType == Applet_OutFocus) {
                     continue;
                 }
                 events.emplace_back(*this->events[j]);
@@ -473,6 +527,7 @@ namespace NX {
 
             // Get start and end timestamps
             for (size_t j = pd_sessions[i].index; j < pd_sessions[i].index + pd_sessions[i].num; j++) {
+                if (j >= this->events.size()) break;  // bounds guard
                 switch (this->events[j]->eventType) {
                     // Ignore account events
                     case Account_Active:
@@ -489,12 +544,11 @@ namespace NX {
                         p.endTimestamp = this->events[j]->clockTimestamp;
                         break;
 
-
                     case Applet_OutFocus:
                         p.endTimestamp = this->events[j]->clockTimestamp;   // In case of a firmware crash there is no Applet_Exit event logged
 
                         // Move to last out focus (I don't know why the log has multiple)
-                        while (j+1 < this->events.size()) {
+                        while (j+1 < this->events.size() && (j+1) < pd_sessions[i].index + pd_sessions[i].num) {
                             if (this->events[j+1]->eventType == Applet_OutFocus) {
                                 j++;
                             } else {
@@ -505,8 +559,19 @@ namespace NX {
                 }
             }
 
-            // Get playtime
-            RecentPlayStatistics * rps = countPlaytime(pd_sessions, p.startTimestamp, p.endTimestamp);
+            // Skip sessions with no valid timestamps (incomplete/corrupt entries)
+            if (p.startTimestamp == 0 && p.endTimestamp == 0) {
+                continue;
+            }
+            // If endTimestamp was never set (app still running or crash without OutFocus),
+            // use startTimestamp as a fallback so playtime calculation doesn't underflow.
+            if (p.endTimestamp < p.startTimestamp) {
+                p.endTimestamp = p.startTimestamp;
+            }
+
+            // Get playtime for this single session only (pass a single-element vector)
+            std::vector<PD_Session> single = { pd_sessions[i] };
+            RecentPlayStatistics * rps = countPlaytime(single, p.startTimestamp, p.endTimestamp);
             p.playtime = rps->playtime;
             delete rps;
 
@@ -528,8 +593,15 @@ namespace NX {
 
     PlayStatistics * PlayData::getStatisticsForUser(TitleID titleID, AccountUid userID) {
         PdmPlayStatistics tmp;
+        memset(&tmp, 0, sizeof(tmp));
         pdmqryQueryPlayStatisticsByApplicationIdAndUserAccountId(titleID, userID, false, &tmp);
         PlayStatistics * stats = new PlayStatistics;
+        stats->titleID = titleID;
+        stats->firstPlayed = 0;
+        stats->lastPlayed = 0;
+        stats->playtime = 0;
+        stats->launches = 0;
+
         if (tmp.first_timestamp_user != 0 && tmp.last_timestamp_user != 0) {
             stats->firstPlayed = tmp.first_timestamp_user;
             stats->lastPlayed = tmp.last_timestamp_user;
@@ -541,7 +613,8 @@ namespace NX {
             }
         }
 
-        stats->playtime = tmp.playtime / 1000 / 1000 / 1000; //the unit of playtime in PdmPlayStatistics is ns
+        // playtime from PDM is in nanoseconds
+        stats->playtime = tmp.playtime / 1000 / 1000 / 1000;
         stats->launches = tmp.total_launches;
         return stats;
     }

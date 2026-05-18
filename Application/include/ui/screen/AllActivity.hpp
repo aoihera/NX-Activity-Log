@@ -2,43 +2,41 @@
 #define SCREEN_ALLACTIVITY_HPP
 
 #include "ui/element/SortedList.hpp"
+#include "ui/element/ListActivity.hpp"
+#include "nx/Title.hpp"
+#include <vector>
 
-// Forward declaration due to circular dependency
 namespace Main {
     class Application;
 };
 
 namespace Screen {
-    // "All Activity" page
     class AllActivity : public Aether::Screen {
         private:
-            // Pointer to main app object for user + titles
             Main::Application * app;
 
-            // Pointers to elements
             Aether::Text * heading;
             Aether::Text * hours;
             Aether::Image * image;
             CustomElm::SortedList * list;
             Aether::Menu * menu;
             Aether::Image * updateElm;
-
-            // Choose sort overlay
             Aether::PopupList * sortOverlay;
 
-            // Set elements and highlight one in overlay
+            struct PendingTitle {
+                CustomElm::ListActivity * element;
+                NX::Title               * title;
+                SortInfo                * sortInfo;
+            };
+            std::vector<PendingTitle> pendingTitles_;
+
             void setupOverlay();
 
         public:
-            // Passed main application object
             AllActivity(Main::Application *);
-
-            // Prepare user-specific elements
             void onLoad();
-            // Delete elements created in onLoad()
+            void update(uint32_t dt);
             void onUnload();
-
-            // Deletes overlay
             ~AllActivity();
     };
 };

@@ -54,7 +54,7 @@ namespace Main {
             this->gLang_ = Default;
         }
 
-        sec->findOrCreateFirstOption("showGraphValues", "true");
+        option = sec->findOrCreateFirstOption("showGraphValues", "true");
         if (option->value == "false") {
             this->gGraph_ = false;
         } else {

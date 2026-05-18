@@ -89,10 +89,6 @@ namespace NX {
             // Vector of titles in imported data
             std::vector<std::pair<u64, std::string>> importTitles;
 
-            // Timestamp indicating when summaries were imported
-            // Used to "merge" with system stats
-            uint64_t importTimestamp;
-
             // Async threads for reading data
             std::future<PlayEventsAndSummaries> pdmThread;
             std::future<PlayEventsAndSummaries> impThread;
@@ -103,6 +99,10 @@ namespace NX {
 
             // Progress callback function
             ProgressCallback progressCallback;
+
+            // Timestamp indicating when summaries were imported
+            // Used to "merge" with system stats
+            uint64_t importTimestamp;
 
             // Return vector of PD_Sessions for given title/user IDs + time range
             // Give a titleID of zero to include all titles

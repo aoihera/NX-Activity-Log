@@ -7,6 +7,3 @@
 [submodule "Application/libs/json"]
 	path = Application/libs/json
 	url = https://github.com/nlohmann/json.git
-[submodule "Application/libs/Aether"]
-	path = Application/libs/Aether
-	url = https://github.com/zdm65477730/Aether

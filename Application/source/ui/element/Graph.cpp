@@ -51,14 +51,23 @@ namespace CustomElm {
 
     void Graph::setNumberOfEntries(unsigned int n) {
         if (n < this->column.size()) {
-            // Delete excess entries
+            // Delete excess entries.
+            // IMPORTANT: capture the last index BEFORE erasing from column, then use
+            // that same index for sep. The original code erased column first, so
+            // column.size() had already shrunk by 1 when the sep erase ran — causing
+            // it to remove sep[N-2] instead of sep[N-1] on every iteration. Over many
+            // view-period switches (Day 24 <-> Month 28-31 <-> Year 12) this left
+            // orphaned stale pointers in sep[], which then crashed in updateElements()
+            // when those freed objects were accessed. This is the root cause of the
+            // reported crash (Data Abort at 0x0, fault address 0x0, offset +8).
             while (this->column.size() > n) {
-                this->removeElement(this->column[this->column.size() - 1].bar);
-                this->removeElement(this->column[this->column.size() - 1].label);
-                this->removeElement(this->column[this->column.size() - 1].value);
-                this->column.erase(this->column.begin() + this->column.size() - 1);
-                this->removeElement(this->sep[this->column.size() - 1]);
-                this->sep.erase(this->sep.begin() + this->column.size() - 1);
+                size_t lastIdx = this->column.size() - 1;
+                this->removeElement(this->column[lastIdx].bar);
+                this->removeElement(this->column[lastIdx].label);
+                this->removeElement(this->column[lastIdx].value);
+                this->column.erase(this->column.begin() + lastIdx);
+                this->removeElement(this->sep[lastIdx]);
+                this->sep.erase(this->sep.begin() + lastIdx);
             }
         } else {
             // If not smaller simply enlarge
@@ -86,7 +95,7 @@ namespace CustomElm {
     }
 
     void Graph::setLabel(unsigned int i, std::string s) {
-        if (i > this->column.size()) {
+        if (i >= this->column.size()) {  // was '>': column[column.size()] is OOB
             return;
         }
 
@@ -98,7 +107,7 @@ namespace CustomElm {
     }
 
     void Graph::setValue(unsigned int i, double v) {
-        if (i > this->column.size()) {
+        if (i >= this->column.size()) {  // was '>': column[column.size()] is OOB
             return;
         }
 
@@ -256,6 +265,11 @@ namespace CustomElm {
         }
 
         // 4: Position each column's elements
+        // Guard: if column is empty there is nothing to draw and dividing by
+        // column.size() would be division-by-zero (integer or float).
+        if (this->column.empty()) {
+            return;
+        }
         gap = this->xAxis->w() / this->column.size();
         for (size_t i = 0; i < this->column.size(); i++) {
             int x = this->xAxis->x() + (gap*i);
@@ -273,7 +287,11 @@ namespace CustomElm {
 
             // Recreate bars + values to ensure they're on top of horizontal lines
             if (this->removeElement(this->column[i].bar)) {
-                this->column[i].bar = new Aether::Rectangle(0, 0, gap*this->barWidth, (this->xAxis->y() - this->steps[this->steps.size() - 1]->y()) * (val / (float)this->yMax));
+                // Guard yMax==0 to avoid division by zero in bar height calculation
+                float barHeight = (this->yMax > 0.0)
+                    ? (this->xAxis->y() - this->steps[this->steps.size() - 1]->y()) * (val / (float)this->yMax)
+                    : 0.0f;
+                this->column[i].bar = new Aether::Rectangle(0, 0, gap*this->barWidth, barHeight);
                 this->column[i].bar->setColour(this->barC);
                 this->addElement(this->column[i].bar);
             }

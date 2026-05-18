@@ -12,6 +12,35 @@
 namespace Screen {
     Details::Details(Main::Application * a) {
         this->app = a;
+        this->popped     = false;
+        this->iconLoaded_  = false;
+        this->titleLoaded_ = false;
+
+        // Null-initialize all onLoad() pointers so update() / onUnload() are
+        // safe even if called before onLoad() completes (rapid screen switches).
+        this->topElm          = nullptr;
+        this->header          = nullptr;
+        this->graph           = nullptr;
+        this->graphHeading    = nullptr;
+        this->graphSubheading = nullptr;
+        this->graphTotal      = nullptr;
+        this->graphTotalHead  = nullptr;
+        this->graphTotalSub   = nullptr;
+        this->playtime        = nullptr;
+        this->avgplaytime     = nullptr;
+        this->timeplayed      = nullptr;
+        this->firstplayed     = nullptr;
+        this->lastplayed      = nullptr;
+        this->icon            = nullptr;
+        this->list            = nullptr;
+        this->playHeading     = nullptr;
+        this->noStats         = nullptr;
+        this->title           = nullptr;
+        this->updateElm       = nullptr;
+        this->userimage       = nullptr;
+        this->username        = nullptr;
+        this->msgbox          = nullptr;
+        this->panel           = nullptr;
 
         // Create static elements
         Aether::Rectangle * r;
@@ -96,6 +125,10 @@ namespace Screen {
     }
 
     void Details::updateActivity() {
+        // Guard: list and graph may be null before onLoad() or after onUnload().
+        if (!this->list || !this->graph) {
+            return;
+        }
         // Check if there is any activity + update heading
         struct tm begin = this->app->time();
         struct tm t = begin;
@@ -417,6 +450,54 @@ namespace Screen {
             }
         }
 
+        // Lazy-load title icon if not yet available.
+        // Guard against update() being invoked before onLoad() or after onUnload().
+        if ((!this->iconLoaded_ || !this->titleLoaded_) && this->title != nullptr) {
+            auto status = this->app->activeTitle()->iconStatus();
+            if (status == NX::IconLoadStatus::Loaded || status == NX::IconLoadStatus::Error) {
+                if (!this->titleLoaded_) {
+                    const std::string n = this->app->activeTitle()->name();
+                    if (!n.empty()) {
+                        this->title->setString(n);
+                        this->title->setY(45 - this->title->h()/2);
+                        int maxW = (this->username != nullptr)
+                            ? this->username->x() - this->title->x() - 60
+                            : 900;
+                        if (this->title->w() > maxW) {
+                            this->title->setW(maxW);
+                            this->title->setCanScroll(true);
+                        } else {
+                            this->title->setCanScroll(false);
+                        }
+                        this->titleLoaded_ = true;
+                    }
+                }
+                if (!this->iconLoaded_ && this->icon != nullptr) {
+                    if (status == NX::IconLoadStatus::Loaded) {
+                        int ix = this->icon->x();
+                        int iy = this->icon->y();
+                        int iw = this->icon->w();
+                        int ih = this->icon->h();
+                        // Destroy must be called before removeElement so that any
+                        // in-flight async render job is cancelled/waited-for before
+                        // the Texture object is deleted.  Without this the ThreadPool
+                        // worker can still be executing renderDrawable() on the old
+                        // icon after it has been freed (use-after-free / data abort).
+                        this->icon->destroy();
+                        this->removeElement(this->icon);
+                        this->icon = new Aether::Image(ix, iy,
+                            this->app->activeTitle()->imgPtr(),
+                            this->app->activeTitle()->imgSize(),
+                            Aether::Render::Wait);
+                        this->icon->setScaleDimensions(iw, ih);
+                        this->icon->renderSync();
+                        this->addElement(this->icon);
+                    }
+                    this->iconLoaded_ = true;
+                }
+            }
+        }
+
         Screen::update(dt);
     }
 
@@ -483,7 +564,8 @@ namespace Screen {
                     break;
 
                 case NX::EventType::Applet_InFocus:
-                    if (events[i-1].eventType == NX::EventType::Account_Active || events[i-1].eventType == NX::EventType::Applet_Launch) {
+                    // Guard against i==0 before looking behind
+                    if (i > 0 && (events[i-1].eventType == NX::EventType::Account_Active || events[i-1].eventType == NX::EventType::Applet_Launch)) {
                         continue;
                     }
                     str += "details.break.appResumed"_lang;
@@ -491,7 +573,8 @@ namespace Screen {
                     break;
 
                 case NX::EventType::Applet_OutFocus:
-                    if (events[i+1].eventType == NX::EventType::Account_Inactive || events[i+1].eventType == NX::EventType::Applet_Exit) {
+                    // Guard against i==last before looking ahead
+                    if (i + 1 < events.size() && (events[i+1].eventType == NX::EventType::Account_Inactive || events[i+1].eventType == NX::EventType::Applet_Exit)) {
                         continue;
                     }
                     str += "details.break.appSuspended"_lang;
@@ -542,10 +625,26 @@ namespace Screen {
         this->username->setColour(this->app->theme()->mutedText());
         this->addElement(this->username);
 
-        // Render title icon
-        this->icon = new Aether::Image(65, 15, this->app->activeTitle()->imgPtr(), this->app->activeTitle()->imgSize(), Aether::Render::Wait);
-        this->icon->setScaleDimensions(60, 60);
-        this->icon->renderSync();
+        // Render title icon – use async lazy-load pattern.
+        // If the icon is already cached create it normally; otherwise create a
+        // blank placeholder and let update() fill it in once the loader is done.
+        auto iconStatus = this->app->activeTitle()->iconStatus();
+        if (iconStatus == NX::IconLoadStatus::Loaded) {
+            this->iconLoaded_ = true;
+            this->icon = new Aether::Image(65, 15, this->app->activeTitle()->imgPtr(), this->app->activeTitle()->imgSize(), Aether::Render::Wait);
+            this->icon->setScaleDimensions(60, 60);
+            this->icon->renderSync();
+        } else {
+            // Placeholder: show the no_icon fallback while the loader runs.
+            // Using the romfs path avoids passing nullptr to Aether::Image.
+            this->icon = new Aether::Image(65, 15, "romfs:/icon/no_icon.jpg", Aether::Render::Wait);
+            this->icon->setScaleDimensions(60, 60);
+            if (iconStatus != NX::IconLoadStatus::Error) {
+                this->iconLoaded_ = false;
+            } else {
+                this->iconLoaded_ = true; // Error – nothing to wait for.
+            }
+        }
         this->addElement(this->icon);
 
         // Render title name and limit length
@@ -557,6 +656,7 @@ namespace Screen {
             this->title->setCanScroll(true);
         }
         this->addElement(this->title);
+        this->titleLoaded_ = !this->app->activeTitle()->name().empty();
 
         // Create list (graph + play sessions)
         this->list = new Aether::List(40, 88, 840, 559);
@@ -649,7 +749,13 @@ namespace Screen {
             return (val.titleID == this->app->activeTitle()->titleID() && val.userID == this->app->activeUser()->ID());
         });
         if (it != adjustments.end()) {
-            ps->playtime += (*it).value;
+            // Guard against unsigned underflow: if the negative adjustment
+            // would take playtime below zero, clamp to zero instead.
+            if ((*it).value < 0 && (u64)(-(*it).value) > ps->playtime) {
+                ps->playtime = 0;
+            } else {
+                ps->playtime += (*it).value;
+            }
         }
 
         if (ps->launches == 0) {
@@ -714,17 +820,43 @@ namespace Screen {
 
     void Details::onUnload() {
         this->removeElement(this->playtime);
+        this->playtime = nullptr;
         this->removeElement(this->avgplaytime);
+        this->avgplaytime = nullptr;
         this->removeElement(this->timeplayed);
+        this->timeplayed = nullptr;
         this->removeElement(this->firstplayed);
+        this->firstplayed = nullptr;
         this->removeElement(this->lastplayed);
+        this->lastplayed = nullptr;
+        // Must destroy() before removeElement() for any element that might
+        // have an async render job in flight.  removeElement() calls delete,
+        // and the worker thread could still be writing into the object.
+        if (this->icon != nullptr) {
+            this->icon->destroy();
+        }
         this->removeElement(this->icon);
+        this->icon = nullptr;
         this->removeElement(this->list);
+        this->list = nullptr;
         this->removeElement(this->title);
+        this->title = nullptr;
+        if (this->userimage != nullptr) {
+            this->userimage->destroy();
+        }
         this->removeElement(this->userimage);
+        this->userimage = nullptr;
         this->removeElement(this->username);
+        this->username = nullptr;
         this->removeElement(this->updateElm);
+        this->updateElm = nullptr;
         delete this->msgbox;
+        this->msgbox = nullptr;
         delete this->panel;
+        this->panel = nullptr;
+
+        // Reset lazy-load flags so onLoad() re-initialises them correctly.
+        this->iconLoaded_ = false;
+        this->titleLoaded_ = false;
     }
 };

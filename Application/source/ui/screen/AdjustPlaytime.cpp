@@ -9,6 +9,12 @@ namespace Screen {
     AdjustPlaytime::AdjustPlaytime(Main::Application * app) : Aether::Screen() {
         this->app = app;
 
+        // Null-initialize onLoad() pointers for safety on rapid screen switches.
+        this->userimage = nullptr;
+        this->username  = nullptr;
+        this->list      = nullptr;
+        this->picker    = nullptr;
+
         // Create "static" elements
         Aether::Rectangle * r = new Aether::Rectangle(30, 87, 1220, 1);
         r->setColour(this->app->theme()->fg());
@@ -58,7 +64,11 @@ namespace Screen {
     }
 
     void AdjustPlaytime::setupPlaytimePicker(const std::string & title, size_t idx, CustomElm::ListAdjust * l) {
-        delete this->picker;
+        // Do NOT delete the old picker here. The overlay system (Aether) may still
+        // hold a pointer to it and render/interact with it in the same frame.
+        // Deleting it while it is still displayed causes a use-after-free crash,
+        // which is easily triggered by quickly pressing A on different list items.
+        // The picker is cleaned up safely in onUnload() instead.
         this->picker = new CustomOvl::PlaytimePicker(title, this->adjustments[idx].value, [this, idx, l](int val) {
             this->adjustments[idx].value = val;
             l->setAdjustedTime(this->getValueString(val));
@@ -96,7 +106,14 @@ namespace Screen {
         // Populate list with all titles
         std::vector<NX::Title *> titles = this->app->titleVector();
         std::sort(titles.begin(), titles.end(), [](NX::Title * lhs, NX::Title * rhs) {
-            return (lhs->name() < rhs->name());
+            // name() returns by value (mutex-protected). Store copies — taking
+            // const& to a temporary is UB.
+            const std::string ln = lhs->name();
+            const std::string rn = rhs->name();
+            if (ln.empty() && rn.empty()) return lhs->titleID() < rhs->titleID();
+            if (ln.empty()) return false; // unnamed sorts after named
+            if (rn.empty()) return true;
+            return ln < rn;
         });
 
         this->adjustments = this->app->config()->adjustmentValues();
@@ -122,7 +139,12 @@ namespace Screen {
             CustomElm::ListAdjust * l = new CustomElm::ListAdjust(title->name(), Utils::playtimeToPlayedForString(stats->playtime), this->getValueString(this->adjustments[idx].value));
             delete stats;
 
-            l->setImage(title->imgPtr(), title->imgSize());
+            auto status = title->iconStatus();
+            if (status == NX::IconLoadStatus::Loaded) {
+                l->setImage(title->imgPtr(), title->imgSize());
+            } else if (status != NX::IconLoadStatus::Error) {
+                iconPairs_.push_back({ l, title });
+            }
             l->setAdjustColour(this->app->theme()->accent());
             l->setLineColour(this->app->theme()->mutedLine());
             l->setRecordColour(this->app->theme()->mutedText());
@@ -138,10 +160,34 @@ namespace Screen {
         this->picker = nullptr;
     }
 
+    void AdjustPlaytime::update(uint32_t dt) {
+        Screen::update(dt);
+
+        int uploaded = 0;
+        auto it = iconPairs_.begin();
+        while (it != iconPairs_.end() && uploaded < 2) {
+            auto status = it->title->iconStatus();
+            if (status == NX::IconLoadStatus::Loaded) {
+                it->element->setImage(it->title->imgPtr(), it->title->imgSize());
+                it = iconPairs_.erase(it);
+                uploaded++;
+            } else if (status == NX::IconLoadStatus::Error) {
+                it = iconPairs_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
     void AdjustPlaytime::onUnload() {
+        iconPairs_.clear();
         delete this->picker;
+        this->picker = nullptr;
         this->removeElement(this->userimage);
+        this->userimage = nullptr;
         this->removeElement(this->username);
+        this->username = nullptr;
         this->removeElement(this->list);
+        this->list = nullptr;
     }
 };
