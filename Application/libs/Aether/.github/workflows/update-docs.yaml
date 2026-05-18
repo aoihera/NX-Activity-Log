@@ -1,0 +1,47 @@
+name: Update Docs
+
+on:
+  push:
+    branches: [ master ]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gen-deploy-docs:
+    name: Documentation Generation & Deployment
+
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+
+    steps:
+    - name: Checkout master branch
+      run: git clone --recursive https://github.com/tallbl0nde/Aether.git $GITHUB_WORKSPACE
+
+    - name: Install doxygen
+      run: sudo apt-get install doxygen --yes
+
+    - name: Make docs
+      run: |
+          source /etc/profile.d/devkit-env.sh
+          export PATH=${PATH}:${DEVKITPRO}/portlibs/switch/bin
+          make --directory=$GITHUB_WORKSPACE --file=$GITHUB_WORKSPACE/Makefile docs
+
+    - name: Commit any changes
+      run: |
+          cd $GITHUB_WORKSPACE
+          git fetch origin;
+          git diff --quiet --exit-code docs/;
+          if [ $? -eq 1 ]; then
+            git add docs/;
+            git config user.name "Github Actions";
+            git config user.email "$GITHUB_ACTOR@users.noreply.github.com";
+            git commit --message "GitHub Actions - Update documentation";
+          fi
+      shell: bash --noprofile --norc {0}
+
+    - name: Push changes
+      uses: ad-m/github-push-action@v0.6.0
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}

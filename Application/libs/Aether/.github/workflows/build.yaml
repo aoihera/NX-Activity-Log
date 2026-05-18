@@ -1,0 +1,32 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+    paths-ignore:
+      - 'README.md'
+  pull_request:
+    branches: [ master ]
+    paths-ignore:
+      - 'README.md'
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Library Build
+
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Make library
+      run: |
+          source /etc/profile.d/devkit-env.sh
+          export PATH=${PATH}:${DEVKITPRO}/portlibs/switch/bin
+          make --directory=$GITHUB_WORKSPACE --file=$GITHUB_WORKSPACE/Makefile -j$(nproc) library
