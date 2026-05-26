@@ -49,7 +49,7 @@ VER_MICRO	:= 8a
 # Options for .nacp information
 #---------------------------------------------------------------------------------
 APP_TITLE   := 	NX Activity Log
-APP_AUTHOR	:= 	zdm65477730
+APP_AUTHOR	:= 	nx-activity-log
 APP_VERSION	:=	$(VER_MAJOR).$(VER_MINOR).$(VER_MICRO)
 ICON 		:= 	icon.jpg
 

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <memory>
 #include <switch.h>
+#include <zlib.h>
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -113,11 +114,33 @@ static void fetchIconForTitle(NX::Title* title) {
     }
 
     if (has_nacp) {
-        // Extract name from NACP
+        // Extract name from NACP.
+        // TitlesDataFormat==1 (FW 21+) stores lang entries as raw DEFLATE
+        // (wbits=-15); decompress into a temporary buffer first.
         NacpLanguageEntry* lang = nullptr;
-        if (R_SUCCEEDED(nsGetApplicationDesiredLanguage(&ctrl->nacp, &lang)) && lang) {
-            name = std::string(lang->name);
+        NacpStruct* nacp_ptr = &ctrl->nacp;
+        NacpStruct tmp;
+        if (ctrl->nacp.titles_data_format == 1) {
+            NacpLanguageEntry decompressed[32] = {};
+            const auto& cd = ctrl->nacp.lang_data.compressed_data;
+            z_stream s = {};
+            s.next_in   = const_cast<Bytef*>(cd.buffer);
+            s.avail_in  = cd.buffer_size;
+            s.next_out  = reinterpret_cast<Bytef*>(decompressed);
+            s.avail_out = sizeof(decompressed);
+            if (inflateInit2(&s, -15) == Z_OK) {
+                if (inflate(&s, Z_FINISH) == Z_STREAM_END) {
+                    tmp = ctrl->nacp;
+                    tmp.titles_data_format = 0;
+                    std::memcpy(tmp.lang_data.lang, decompressed,
+                                std::min<uLong>(s.total_out, sizeof(tmp.lang_data.lang)));
+                    nacp_ptr = &tmp;
+                }
+                inflateEnd(&s);
+            }
         }
+        if (R_SUCCEEDED(nsGetApplicationDesiredLanguage(nacp_ptr, &lang)) && lang)
+            name = std::string(lang->name);
 
         // Extract icon JPEG
         if (actualSize > sizeof(NacpStruct)) {
