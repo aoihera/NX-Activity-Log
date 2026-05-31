@@ -109,10 +109,12 @@ namespace Screen {
                 break;
 
             case ViewPeriod::Month:
+                em.tm_hour = 23;
                 em.tm_mday = Utils::Time::tmGetDaysInMonth(tm);
                 break;
 
             case ViewPeriod::Year:
+                em.tm_hour = 23;
                 em.tm_mon = 11;
                 em.tm_mday = Utils::Time::tmGetDaysInMonth(tm);
                 break;
