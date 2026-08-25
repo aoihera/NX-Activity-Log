@@ -15,7 +15,6 @@ namespace Screen {
         this->image     = nullptr;
         this->list      = nullptr;
         this->menu      = nullptr;
-        this->updateElm = nullptr;
 
         // Create "static" elements
         Aether::Rectangle * r;
@@ -236,13 +235,6 @@ namespace Screen {
             this->hours->y() - this->hours->h() / 2);
         this->hours->setColour(this->app->theme()->mutedText());
         this->addElement(this->hours);
-
-        this->updateElm = nullptr;
-        if (this->app->hasUpdate()) {
-            this->updateElm = new Aether::Image(50, 669, "romfs:/icon/download.png");
-            this->updateElm->setColour(this->app->theme()->text());
-            this->addElement(this->updateElm);
-        }
     }
 
     void AllActivity::update(uint32_t dt) {
@@ -284,8 +276,6 @@ namespace Screen {
         this->list = nullptr;
         this->removeElement(this->menu);
         this->menu = nullptr;
-        this->removeElement(this->updateElm);
-        this->updateElm = nullptr;
     }
 
     AllActivity::~AllActivity() {

@@ -44,7 +44,6 @@ enum ScreenID {
     AdjustPlaytime,
     HideTitles,
     Details,
-    Update,
     CustomTheme
 };
 
@@ -86,13 +85,6 @@ typedef struct {
     Aether::Colour selected;
     Aether::Colour text;
 } ThemeSet;
-
-typedef struct {
-    std::string changelog;  // Changelog (with markdown syntax)
-    bool success;           // Set true if the query was successful
-    std::string url;        // URL of .nro file to download
-    std::string version;    // Version of latest release (vX.X.X)
-} UpdateData;
 
 // Period to view recent stats for
 enum ViewPeriod {

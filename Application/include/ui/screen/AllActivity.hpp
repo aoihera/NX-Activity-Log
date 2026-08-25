@@ -20,7 +20,6 @@ namespace Screen {
             Aether::Image * image;
             CustomElm::SortedList * list;
             Aether::Menu * menu;
-            Aether::Image * updateElm;
             Aether::PopupList * sortOverlay;
 
             struct PendingTitle {

@@ -3,7 +3,6 @@
 #include "Application.ImportJob.hpp"
 #include "utils/Curl.hpp"
 #include "utils/Lang.hpp"
-#include "utils/UpdateUtils.hpp"
 #include "utils/Utils.hpp"
 
 #include "ui/screen/AdjustPlaytime.hpp"
@@ -14,7 +13,6 @@
 #include "ui/screen/LoadingScreen.hpp"
 #include "ui/screen/RecentActivity.hpp"
 #include "ui/screen/Settings.hpp"
-#include "ui/screen/Update.hpp"
 #include "ui/screen/UserSelect.hpp"
 
 // Path to background image
@@ -46,9 +44,6 @@ namespace Main {
 
         this->theme_ = new Theme(this->config_->gTheme());
 
-        // Start update thread
-        this->hasUpdate_ = false;
-        this->updateThread = std::async(std::launch::async, &Application::checkForUpdate, this);
         this->initDone_ = false;
 
         // Check if launched via user page and if so only use the chosen user
@@ -145,14 +140,6 @@ namespace Main {
         app->initDone_.store(true, std::memory_order_release);
     }
 
-    void Application::checkForUpdate() {
-        if (Utils::Update::needsCheck()) {
-            Utils::Update::check();
-        }
-
-        this->hasUpdate_ = Utils::Update::available();
-    }
-
     void Application::reinitScreens(ScreenCreate c) {
         this->createReason = c;
         this->reinitScreens_ = ReinitState::Wait;
@@ -167,7 +154,6 @@ namespace Main {
         this->scHideTitles = new Screen::HideTitles(this);
         this->scRecentActivity = new Screen::RecentActivity(this);
         this->scSettings = new Screen::Settings(this, this->createReason);
-        this->scUpdate = new Screen::Update(this);
 
         // These screens aren't used on the user page so no point wasting memory
         if (!this->isUserPage_) {
@@ -186,7 +172,6 @@ namespace Main {
         delete this->scHideTitles;
         delete this->scRecentActivity;
         delete this->scSettings;
-        delete this->scUpdate;
 
         if (!this->isUserPage_) {
             delete this->scUserSelect;
@@ -240,11 +225,6 @@ namespace Main {
             case Settings:
                 this->window->showScreen(this->scSettings);
                 this->screen = Settings;
-                break;
-
-            case Update:
-                this->window->showScreen(this->scUpdate);
-                this->screen = Update;
                 break;
 
             case UserSelect:
@@ -432,10 +412,6 @@ namespace Main {
         }
     }
 
-    bool Application::hasUpdate() {
-        return this->hasUpdate_;
-    }
-
     struct tm Application::time() {
         return this->tm;
     }
@@ -565,9 +541,6 @@ namespace Main {
         // Stop all services
         Utils::Curl::exit();
         Utils::NX::stopServices();
-
-        // Install update if present
-        Utils::Update::install();
 
         threadClose(&this->initThreadHandle);
 

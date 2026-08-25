@@ -15,7 +15,6 @@ namespace Screen {
         private:
             // Pointer to main app object for user + titles
             Main::Application * app;
-            Aether::Image * updateElm;
 
             // Need pointers to every element in order to update colours
             Aether::Text * heading;

@@ -8,7 +8,6 @@ namespace Screen {
         this->app = a;
         // Null-initialize onLoad() pointers for safety on rapid screen switches.
         this->list       = nullptr;
-        this->updateElm  = nullptr;
         this->msgbox     = nullptr;
         this->picker     = nullptr;
         this->presetList = nullptr;
@@ -176,9 +175,6 @@ namespace Screen {
         this->colourMutedText->setTextColour(this->app->theme()->text());
         this->colourMutedText->setColour(this->app->theme()->mutedText());
         this->app->setDisplayTheme();
-        if (this->updateElm != nullptr) {
-            this->updateElm->setColour(this->app->theme()->text());
-        }
         this->presetList->setAllColours(this->app->theme()->altBG(), this->app->theme()->accent(), this->app->theme()->fg(), this->app->theme()->mutedLine(), this->app->theme()->text());
     }
 
@@ -337,13 +333,6 @@ namespace Screen {
 
         this->addElement(this->list);
 
-        // Show update icon if needbe
-        this->updateElm = nullptr;
-        if (this->app->hasUpdate()) {
-            this->updateElm = new Aether::Image(50, 669, "romfs:/icon/download.png");
-            this->addElement(this->updateElm);
-        }
-
         this->createPresetList();
         this->picker = nullptr;
 
@@ -356,8 +345,6 @@ namespace Screen {
     void CustomTheme::onUnload() {
         this->removeElement(this->list);
         this->list = nullptr;
-        this->removeElement(this->updateElm);
-        this->updateElm = nullptr;
         delete this->msgbox;
         this->msgbox = nullptr;
         delete this->picker;

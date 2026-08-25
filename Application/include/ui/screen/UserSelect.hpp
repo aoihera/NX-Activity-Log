@@ -16,7 +16,6 @@ namespace Screen {
 
             // Need pointer to list in order to update
             Aether::List * list;
-            Aether::Image * updateElm;
 
             // Stores copy of user vector
             std::vector<NX::User *> users;

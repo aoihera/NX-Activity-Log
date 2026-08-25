@@ -19,7 +19,6 @@ namespace Screen {
     class HideTitles;
     class RecentActivity;
     class Settings;
-    class Update;
     class UserSelect;
 };
 
@@ -50,7 +49,6 @@ namespace Main {
             Screen::HideTitles * scHideTitles;
             Screen::RecentActivity * scRecentActivity;
             Screen::Settings * scSettings;
-            Screen::Update * scUpdate;
             Screen::UserSelect * scUserSelect;
 
             // ID of current screen
@@ -73,13 +71,6 @@ namespace Main {
             NX::PlayData * playdata_;
             // Stores current theme colours
             Theme * theme_;
-
-            // Set true when an update is available
-            std::atomic<bool> hasUpdate_;
-            // Future for update check thread
-            std::future<void> updateThread;
-            // Function to check for update
-            void checkForUpdate();
 
             Thread initThreadHandle;
             static void initThreadFunc(void* arg);
@@ -153,9 +144,6 @@ namespace Main {
             Theme * theme();
             // (Re)set the display theme variables for highlight/select/etc... using values in theme object
             void setDisplayTheme();
-
-            // True if an update is available
-            bool hasUpdate();
 
             // Returns copy of tm struct (can only be set by this class)
             struct tm time();

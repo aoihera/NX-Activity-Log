@@ -38,7 +38,6 @@ namespace Screen {
             Aether::List * list;
             Aether::Menu * menu;
             Aether::Text * noStats;
-            Aether::Image * updateElm;
 
             // Pending icon uploads: list-item element <-> title whose icon is
             // being fetched by TitleIconLoader.  Drained lazily in update().

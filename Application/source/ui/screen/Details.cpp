@@ -36,7 +36,6 @@ namespace Screen {
         this->playHeading     = nullptr;
         this->noStats         = nullptr;
         this->title           = nullptr;
-        this->updateElm       = nullptr;
         this->userimage       = nullptr;
         this->username        = nullptr;
         this->msgbox          = nullptr;
@@ -242,12 +241,13 @@ namespace Screen {
                     }
                     max /= 60.0;
                     max /= 60.0;
-                    if (max <= 2) {
-                        this->graph->setMaximumValue(max + 2 - max%2);
-                        this->graph->setYSteps(2);
+                    // Default to 8h; expand by 4h increments
+                    if (max < 8) {
+                        this->graph->setMaximumValue(8);
+                        this->graph->setYSteps(4);
                     } else {
-                        this->graph->setMaximumValue(max + 5 - max%5);
-                        this->graph->setYSteps(5);
+                        this->graph->setMaximumValue(max + 4 - max%4);
+                        this->graph->setYSteps(4);
                     }
                     this->graphSubheading->setString("common.playtimeHours"_lang);
                     break;
@@ -279,12 +279,13 @@ namespace Screen {
                     }
                     max /= 60.0;
                     max /= 60.0;
-                    if (max <= 2) {
-                        this->graph->setMaximumValue(max + 2 - max%2);
-                        this->graph->setYSteps(2);
+                    // Default to 8h; expand by 4h increments
+                    if (max < 8) {
+                        this->graph->setMaximumValue(8);
+                        this->graph->setYSteps(4);
                     } else {
-                        this->graph->setMaximumValue(max + 5 - max%5);
-                        this->graph->setYSteps(5);
+                        this->graph->setMaximumValue(max + 4 - max%4);
+                        this->graph->setYSteps(4);
                     }
                     this->graphSubheading->setString("common.playtimeHours"_lang);
                     break;
@@ -794,14 +795,6 @@ namespace Screen {
         delete pss;
         delete ps;
 
-        // Show update icon if needbe
-        this->updateElm =nullptr;
-        if (this->app->hasUpdate()) {
-            this->updateElm = new Aether::Image(50, 669, "romfs:/icon/download.png");
-            this->updateElm->setColour(this->app->theme()->text());
-            this->addElement(this->updateElm);
-        }
-
         // Create blank messagebox
         this->msgbox = new Aether::MessageBox();
         this->msgbox->addTopButton("common.close"_lang, [this](){
@@ -850,8 +843,6 @@ namespace Screen {
         this->userimage = nullptr;
         this->removeElement(this->username);
         this->username = nullptr;
-        this->removeElement(this->updateElm);
-        this->updateElm = nullptr;
         delete this->msgbox;
         this->msgbox = nullptr;
         delete this->panel;

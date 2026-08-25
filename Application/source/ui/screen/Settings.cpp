@@ -15,7 +15,6 @@ namespace Screen {
         this->image       = nullptr;
         this->list        = nullptr;
         this->menu        = nullptr;
-        this->updateElm   = nullptr;
         this->msgbox      = nullptr;
         this->popuplist   = nullptr;
         this->progressbox = nullptr;
@@ -345,20 +344,6 @@ namespace Screen {
         this->list->setCatchup(11);
         this->list->setScrollBarColour(this->app->theme()->mutedLine());
 
-        // ===== UPDATE =====
-        Aether::ListButton * lb = new Aether::ListButton("settings.update"_lang, [this]() {
-            this->app->pushScreen();
-            this->app->setScreen(ScreenID::Update);
-        });
-        lb->setLineColour(this->app->theme()->mutedLine());
-        lb->setTextColour(this->app->theme()->text());
-        this->list->addElement(lb);
-        Aether::ListComment * lc = new Aether::ListComment("settings.updateHint"_lang);
-        lc->setTextColour(this->app->theme()->mutedText());
-        this->list->addElement(lc);
-
-        this->list->addElement(new Aether::ListSeparator());
-
         // ===== APPEARANCE =====
         Aether::ListHeading * lh = new Aether::ListHeading("settings.appearance.heading"_lang);
         lh->setRectColour(this->app->theme()->mutedLine());
@@ -384,7 +369,7 @@ namespace Screen {
         this->optionTheme->setValueColour(this->app->theme()->accent());
         this->optionTheme->setLineColour(this->app->theme()->mutedLine());
         this->list->addElement(this->optionTheme);
-        lc = new Aether::ListComment("settings.appearance.themeHint"_lang);
+        Aether::ListComment * lc = new Aether::ListComment("settings.appearance.themeHint"_lang);
         lc->setTextColour(this->app->theme()->mutedText());
         this->list->addElement(lc);
 
@@ -498,7 +483,7 @@ namespace Screen {
         this->list->addElement(new Aether::ListSeparator(20));
 
         // EXPORT
-        lb = new Aether::ListButton("settings.importExport.export"_lang, [this]() {
+        Aether::ListButton * lb = new Aether::ListButton("settings.importExport.export"_lang, [this]() {
             this->showExportOverlay();
             this->app->exportToJSON(this->progressValue);
             this->job = Job::Export;
@@ -617,14 +602,6 @@ namespace Screen {
         this->progressbox->setBarForegroundColour(this->app->theme()->accent());
         this->progressbox->setTextColour(this->app->theme()->text());
 
-        // Show update icon if needbe
-        this->updateElm = nullptr;
-        if (this->app->hasUpdate()) {
-            this->updateElm = new Aether::Image(50, 669, "romfs:/icon/download.png");
-            this->updateElm->setColour(this->app->theme()->text());
-            this->addElement(this->updateElm);
-        }
-
         this->popuplist = nullptr;
 
         // Activate appropriate item if necessary
@@ -652,8 +629,6 @@ namespace Screen {
         this->list = nullptr;
         this->removeElement(this->menu);
         this->menu = nullptr;
-        this->removeElement(this->updateElm);
-        this->updateElm = nullptr;
         delete this->msgbox;
         this->msgbox = nullptr;
         delete this->popuplist;
