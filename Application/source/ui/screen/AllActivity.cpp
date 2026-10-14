@@ -4,8 +4,13 @@
 #include "utils/Utils.hpp"
 #include "utils/Time.hpp"
 #include "nx/TitleIconLoader.hpp"
+#include <optional>
 
 namespace Screen {
+    // Sort chosen in this screen since the app opened (unset = use Settings default).
+    // File-scope so it survives reinitScreens(), which recreates the screen.
+    static std::optional<SortType> sessionSort;
+
     AllActivity::AllActivity(Main::Application * a) {
         this->app = a;
 
@@ -81,6 +86,7 @@ namespace Screen {
         for (int i = 0; i < SortType::TotalSorts; i++) {
             SortType s = (SortType)i;
             this->sortOverlay->addEntry(toString(s), [this, s](){
+                sessionSort = s;
                 this->list->setSort(s);
             }, sort == s);
         }
@@ -225,7 +231,7 @@ namespace Screen {
             delete ps2;
         }
 
-        this->list->setSort(this->app->config()->lSort());
+        this->list->setSort(sessionSort.value_or(this->app->config()->lSort()));
         this->addElement(this->list);
 
         this->hours = new Aether::Text(1215, 44,

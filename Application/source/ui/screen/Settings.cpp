@@ -580,16 +580,6 @@ namespace Screen {
         lc->setTextColour(this->app->theme()->mutedText());
         this->list->addElement(lc);
 
-        this->list->addElement(new Aether::ListSeparator());
-
-        // INFORMATION
-        lc = new Aether::ListComment("settings.translations"_lang + "\nChinese: tiansongyu\nFrench: xRock\nGerman: Ayk\nItalian: reinzanini\nKorean: jhs516\nPortugese: evertonstz\nRussian: Sookie69\nSpanish: ivanmarban\nTurkish: fpscan");
-        lc->setTextColour(this->app->theme()->mutedText());
-        this->list->addElement(lc);
-        lc = new Aether::ListComment("NX Activity Log v" + std::string(VER_STRING) + "\n" + "settings.about"_lang + "\n\n" + "settings.support"_lang + "\nhttps://ko-fi.com/tallbl0nde");
-        lc->setTextColour(this->app->theme()->mutedText());
-        this->list->addElement(lc);
-
         this->addElement(this->list);
 
         this->msgbox = nullptr;
